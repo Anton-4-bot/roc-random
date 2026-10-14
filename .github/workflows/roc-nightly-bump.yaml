@@ -1,10 +1,9 @@
 # Opens a PR that repins the repository to the newest Roc nightly.
 #
 # The rest of CI installs the nightly pinned in examples/simple.roc, so the only
-# way to exercise a newer compiler is to bump the pin. This workflow does not run
-# the tests itself: a PR opened with GITHUB_TOKEN does not trigger `on:
-# pull_request` runs, so run tests.yaml manually against the PR branch
-# (Actions -> tests -> Run workflow -> pick the roc-nightly-* branch).
+# way to exercise a newer compiler is to bump the pin. A PR opened with
+# GITHUB_TOKEN does not trigger `on: pull_request` runs, so this workflow runs
+# the tests itself and reports the result in the PR description.
 name: Bump Roc nightly
 
 on:
@@ -75,10 +74,10 @@ jobs:
           version: nightly-new-compiler
           nightly-tag: ${{ steps.nightly.outputs.version }}
 
-      - name: Open bump PR
+      - name: Commit bump
+        id: bump
         if: steps.nightly.outputs.skip == ''
         env:
-          GH_TOKEN: ${{ github.token }}
           VERSION: ${{ steps.nightly.outputs.version }}
           BRANCH: ${{ steps.nightly.outputs.branch }}
         run: |
@@ -97,13 +96,38 @@ jobs:
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
           git switch --create "$BRANCH"
           git commit --all --message "Pin Roc to $VERSION"
+          echo "changed=true" >> "$GITHUB_OUTPUT"
+
+      # A failure is reported in the PR description instead of stopping the PR.
+      - name: Run tests
+        id: tests
+        if: steps.bump.outputs.changed == 'true'
+        continue-on-error: true
+        run: ./ci/all_tests.sh
+
+      - name: Open bump PR
+        if: steps.bump.outputs.changed == 'true'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          VERSION: ${{ steps.nightly.outputs.version }}
+          BRANCH: ${{ steps.nightly.outputs.branch }}
+          TESTS_OUTCOME: ${{ steps.tests.outcome }}
+        run: |
+          set -euo pipefail
+
           git push origin "$BRANCH"
+
+          run_url="$GITHUB_SERVER_URL/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID"
+          if [ "$TESTS_OUTCOME" = "success" ]; then
+            tests="Tests pass with this nightly."
+          else
+            tests="Tests **fail** with this nightly, see the [workflow run]($run_url)."
+          fi
 
           body="$(cat <<EOF
           Repins the examples and flake.nix to [$VERSION](https://github.com/roc-lang/nightlies/releases/tag/$VERSION).
 
-          Tests do not run automatically here, because this PR was opened by \`GITHUB_TOKEN\`.
-          Run them from Actions -> tests -> Run workflow, against the \`$BRANCH\` branch.
+          $tests
           EOF
           )"
 
