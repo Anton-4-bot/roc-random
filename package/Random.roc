@@ -205,7 +205,6 @@ Random := [].{
 					Ok(l) => l
 					Err(_) => {
 						crash "error in `Random.shuffle`"
-						[]
 					}
 				}
 			}
@@ -1105,7 +1104,6 @@ shuffle_with_u32 = |items| {
 				Ok(l) => l
 				Err(OutOfBounds) => {
 					crash "error in `shuffle_with_u32`"
-					[]
 				}
 			}
 		}
